@@ -13,7 +13,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 final GoogleSignIn googlesignin = GoogleSignIn();
 final CollectionReference users = Firestore.instance.collection("users");
 final DateTime timestamp = DateTime.now();
-User currentuser;
+User currentUser;
 
 class Home extends StatefulWidget {
   @override
@@ -74,7 +74,7 @@ class _HomeState extends State<Home> {
       doc = await usersRef.document(user.id).get();
     }
 
-    currentuser = User.fromDocument(doc);
+    currentUser = User.fromDocument(doc);
   }
 
   onPageChanged(int pageIndex) {
@@ -115,7 +115,7 @@ class _HomeState extends State<Home> {
             onPressed: logout,
           ),
           ActivityFeed(),
-          Upload(),
+          Upload(currentUser: currentUser),
           Search(),
           Profile(),
         ],
