@@ -1,10 +1,17 @@
 import 'dart:io';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:fluttershare/models/user.dart';
+import 'package:fluttershare/pages/home.dart';
+import 'package:fluttershare/widgets/progress.dart';
+import 'package:geolocator/geolocator.dart';
+import "package:image/image.dart" as Im;
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 
 class Upload extends StatefulWidget {
   final User currentUser;
@@ -14,8 +21,14 @@ class Upload extends StatefulWidget {
   _UploadState createState() => _UploadState();
 }
 
+createPostInFirestore(String mediaUrl, String location, String description) {}
+
 class _UploadState extends State<Upload> {
   File file;
+  TextEditingController captionController = TextEditingController();
+  TextEditingController locationController = TextEditingController();
+  bool isUploading = false;
+  String postId = Uuid().v4();
 
   selectImage(context) {
     return showDialog(
@@ -98,6 +111,68 @@ class _UploadState extends State<Upload> {
     });
   }
 
+  compressImage() async {
+    final tempDir = await getTemporaryDirectory();
+    final path = tempDir.path;
+    Im.Image imageFile = Im.decodeImage(file.readAsBytesSync());
+    final compressedImageFile = File("$path/img_$postId.jpg")
+      ..writeAsBytesSync(Im.encodeJpg(imageFile, quality: 85));
+    setState(() {
+      file = compressedImageFile;
+    });
+  }
+
+  Future<String> uploadImage(imageFile) async {
+    StorageUploadTask uploadTask =
+        storageRef.child("post_$postId.jpg").putFile(imageFile);
+    StorageTaskSnapshot storageSnap = await uploadTask.onComplete;
+    String downloadUrl = await storageSnap.ref.getDownloadURL();
+    return downloadUrl;
+  }
+
+  // This function is used to post to firestore, the databaae
+  createPostInFirestore(
+      {String mediaUrl, String location, String description}) {
+    postsRef
+        .document(widget.currentUser.id)
+        .collection("userPosts")
+        .document(postId)
+        .setData({
+      "postId": postId,
+      "ownerId": widget.currentUser.id,
+      "username": widget.currentUser.username,
+      "mediaUrl": mediaUrl,
+      "description": description,
+      "location": location,
+      "timestamp": timestamp,
+      "likes": {}
+    });
+  }
+
+  // from what I have learnt today in the code, The handle function is the  main place to go to know whta is going on
+  // Handle submit compressed the image first, then uploads it in firestore
+  /*
+  * Then it clears the caption and location controller
+  * */
+  handleSubmit() async {
+    setState(() {
+      isUploading = true;
+    });
+    await compressImage();
+    String mediaUrl = await uploadImage(file);
+    createPostInFirestore(
+        mediaUrl: mediaUrl,
+        location: locationController.text,
+        description: captionController.text);
+    captionController.clear();
+    locationController.clear();
+    setState(() {
+      file = null;
+      isUploading = false;
+      postId = Uuid().v4();
+    });
+  }
+
   Scaffold buildUploadForm() {
     return Scaffold(
       appBar: AppBar(
@@ -115,7 +190,7 @@ class _UploadState extends State<Upload> {
         ),
         actions: <Widget>[
           FlatButton(
-            onPressed: () => print("Pressed"),
+            onPressed: isUploading ? null : () => handleSubmit(),
             child: Text(
               "Post",
               style: TextStyle(
@@ -128,6 +203,7 @@ class _UploadState extends State<Upload> {
       ),
       body: ListView(
         children: <Widget>[
+          isUploading ? linearProgress() : Text(""),
           Container(
             height: 220.0,
             width: MediaQuery.of(context).size.width * 0.8,
@@ -198,6 +274,22 @@ class _UploadState extends State<Upload> {
       ),
     );
   }
+
+// This function is used to get the location and display it to the user
+  getUserLocation() async {
+    Position position = await Geolocator()
+        .getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+    List<Placemark> placemarks = await Geolocator()
+        .placemarkFromCoordinates(position.latitude, position.longitude);
+    Placemark placemark = placemarks[0];
+    String completeAddress =
+        '${placemark.subThoroughfare} ${placemark.thoroughfare}, ${placemark.subLocality} ${placemark.locality}, ${placemark.subAdministrativeArea}, ${placemark.administrativeArea} ${placemark.postalCode}, ${placemark.country}';
+    print(completeAddress);
+    String formattedAddress = "${placemark.locality}, ${placemark.country}";
+    locationController.text = formattedAddress;
+  }
+
+  bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
